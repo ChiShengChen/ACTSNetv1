@@ -2,7 +2,9 @@
 
 PyTorch reproduction of **ACTSNet (Attentional Convolution Time Series Network)**, originally proposed as part of a 2021 NTU master's thesis on MDD EEG classification for TMS treatment response prediction.
 
-> **Thesis:** 利用深度學習分析靜息態腦電圖以預測經顱磁刺激對於難治型憂鬱症之療效
+> **Thesis:** 基於注意力機制之時間序列原型卷積神經網路與傳統及量子機器學習模型應用於重度憂鬱症腦波之經顱磁刺激抗憂鬱療效預測與分析
+> (EEG Analysis for Prediction of Antidepressant Responses of Transcranial Magnetic Stimulation in Major Depressive Disorder Based on Attentional Convolution Time Series Prototypical Neural Network Model and Classical/Quantum Machine Learning Approaches)
+> **Author:** Chi-Sheng Chen (陳麒升)
 > **Source:** National Taiwan University, 2021
 > **Link:** <https://tdr.lib.ntu.edu.tw/handle/123456789/82206>
 > **DOI:** 10.6342/NTU202101201
@@ -10,9 +12,9 @@ PyTorch reproduction of **ACTSNet (Attentional Convolution Time Series Network)*
 ## Citation
 
 ```bibtex
-@mastersthesis{actsnet2021ntu,
-  title   = {利用深度學習分析靜息態腦電圖以預測經顱磁刺激對於難治型憂鬱症之療效},
-  author  = {國立臺灣大學碩士論文},
+@mastersthesis{chen2021actsnet,
+  title   = {基於注意力機制之時間序列原型卷積神經網路與傳統及量子機器學習模型應用於重度憂鬱症腦波之經顱磁刺激抗憂鬱療效預測與分析},
+  author  = {Chen, Chi-Sheng},
   school  = {National Taiwan University},
   year    = {2021},
   doi     = {10.6342/NTU202101201},
