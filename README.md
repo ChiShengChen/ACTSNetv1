@@ -24,7 +24,7 @@ PyTorch reproduction of **ACTSNet (Attentional Convolution Time Series Network)*
 
 ## Overview
 
-ACTSNet is designed for **MDD (Major Depressive Disorder)** resting-state EEG binary classification — predicting **rTMS/iTBS treatment responders vs non-responders**. It is a modified version of [TapNet](https://arxiv.org/abs/2002.07764) (Zhang et al., AAAI 2020) where the LSTM branch is replaced by an **Attentional Convolution (AC)** module inspired by the [Encoder network](https://arxiv.org/abs/1805.03908) (Serra et al., 2018). The motivation is that LSTM does not perform well on noisy MDD EEG data, while AC provides better feature extraction through attention-weighted convolution.
+ACTSNet is designed for **MDD (Major Depressive Disorder)** resting-state EEG binary classification — predicting **rTMS/iTBS treatment responders vs non-responders**. It is a modified version of [TapNet](https://ojs.aaai.org/index.php/AAAI/article/view/6165) (Zhang et al., AAAI 2020) where the LSTM branch is replaced by an **Attentional Convolution (AC)** module inspired by the [Encoder network](https://arxiv.org/abs/1805.03908) (Serra et al., 2018). The motivation is that LSTM does not perform well on noisy MDD EEG data, while AC provides better feature extraction through attention-weighted convolution.
 
 ## Architecture
 
