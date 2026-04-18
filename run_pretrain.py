@@ -122,8 +122,8 @@ def main():
         ("tuab", "3.0.1", "train", args.max_samples_per_dataset),
         ("tuev", "2.0.0", "train", args.max_samples_per_dataset),
         ("bcic_2a", "1.0.0", "train", None),  # small, load all
-        ("seed_iv", "1.0.0", "train", args.max_samples_per_dataset),
-        # ("siena_scalp", "1.0.0", "train", args.max_samples_per_dataset),  # disk bad sector
+        ("seed_iv", "1.0.0", "train", args.max_samples_per_dataset),  # cached on Transcend (bad sector)
+        ("siena_scalp", "1.0.0", "train", args.max_samples_per_dataset),  # cached on Transcend (bad sector)
     ]
 
     datasets = []

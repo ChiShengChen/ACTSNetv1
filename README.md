@@ -111,6 +111,56 @@ ACTSNet/
 │   └── evaluate.py     # Evaluation & metrics
 ```
 
+## Benchmark Results
+
+ACTSNet evaluated on 4 EEG-FM-Bench datasets with 3 seeds (42, 123, 456), 100 finetune epochs, batch size 64, LR 1e-3, T=1024. Metric: **balanced accuracy** (mean ± std).
+
+### From scratch (no pretrain)
+
+| Dataset | Classes | Bal. Acc. | Cohen's κ | Weighted F1 |
+|---|---|---|---|---|
+| bcic_2a | 4 | 0.4358 ± 0.0263 | 0.2477 ± 0.0350 | 0.4249 ± 0.0451 |
+| tuab    | 2 | 0.7457 ± 0.0019 | 0.4960 ± 0.0055 | 0.7497 ± 0.0026 |
+| tuev    | 6 | 0.3868 ± 0.0543 | 0.2889 ± 0.0199 | 0.5421 ± 0.0102 |
+| seed_iv | 4 | 0.3008 ± 0.0051 | 0.0647 ± 0.0056 | 0.2764 ± 0.0106 |
+
+### With self-supervised pretrain (v1, small pool)
+
+Pretrain: **seed_iv + bcic_2a** (13,441 samples), 50 epochs, NT-Xent (contrastive) + MSE (reconstruction).
+
+| Dataset | Classes | Bal. Acc. | Cohen's κ | Weighted F1 |
+|---|---|---|---|---|
+| bcic_2a | 4 | 0.4034 ± 0.0433 | 0.2045 ± 0.0577 | 0.3704 ± 0.0715 |
+
+### With self-supervised pretrain (v2, full pool)
+
+Pretrain: **tuab + tuev + bcic_2a + seed_iv + siena_scalp** (74,141 samples), 50 epochs, NT-Xent (contrastive) + MSE (reconstruction).
+
+| Dataset | Classes | Bal. Acc. | Cohen's κ | Weighted F1 | Δ vs from-scratch |
+|---|---|---|---|---|---|
+| bcic_2a | 4 | 0.3709 ± 0.0262 | 0.1613 ± 0.0350 | 0.3308 ± 0.0538 | −0.065 |
+| tuab    | 2 | 0.7257 ± 0.0019 | 0.4574 ± 0.0041 | 0.7301 ± 0.0020 | −0.020 |
+| tuev    | 6 | 0.4130 ± 0.0306 | 0.3557 ± 0.0479 | 0.6088 ± 0.0398 | **+0.026** |
+| seed_iv | 4 | 0.3045 ± 0.0096 | 0.0687 ± 0.0137 | 0.2729 ± 0.0201 | +0.004 |
+
+Reproduce with:
+
+```bash
+# Pretrain (50 epochs, ~80 min on RTX 3090)
+python run_pretrain.py \
+    --epochs 50 --batch_size 64 --lr 1e-3 \
+    --max_channels 64 --max_time_len 1024 \
+    --max_samples_per_dataset 20000 \
+    --output_dir checkpoints/pretrain_full
+
+# Finetune benchmark on 4 datasets × 3 seeds
+python run_eegfm_benchmark.py \
+    --datasets bcic_2a tuab tuev seed_iv \
+    --pretrained_path checkpoints/pretrain_full/pretrain_final.pt \
+    --seeds 42 123 456 --epochs 100 \
+    --output_dir checkpoints/eegfm_benchmark_pretrain_full
+```
+
 ## References
 
 - **TapNet:** Zhang et al., "TapNet: Multivariate Time Series Classification with Attentional Prototypical Network," AAAI 2020

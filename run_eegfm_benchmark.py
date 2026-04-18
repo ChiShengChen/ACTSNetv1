@@ -208,7 +208,7 @@ def evaluate_batched(model, train_loader, test_loader, device, max_support=5000)
 
 def load_pretrained_encoder(model: ACTSNet, pretrained_path: str, logger: logging.Logger):
     """Load pretrained encoder weights into ACTSNet model."""
-    ckpt = torch.load(pretrained_path, map_location='cpu', weights_only=False)
+    ckpt = torch.load(pretrained_path, map_location='cpu')
     encoder_state = ckpt.get('encoder_state_dict', {})
     if not encoder_state:
         logger.warning("No encoder_state_dict in checkpoint, skipping pretrain load")
