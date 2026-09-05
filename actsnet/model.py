@@ -65,6 +65,25 @@ class ACEncoder(nn.Module):
         return x
 
 
+class LSTMEncoder(nn.Module):
+    """TapNet-style recurrent branch (H2 ablation: replaces AttentionalConvolution).
+
+    Takes the same 1×1-projected input as ACEncoder for a fair comparison; runs an
+    LSTM over time and projects the last hidden state to prototype_dim.
+    """
+
+    def __init__(self, in_channels, hidden_dim, prototype_dim, dropout=0.1, num_layers=1):
+        super().__init__()
+        self.lstm = nn.LSTM(in_channels, hidden_dim, num_layers=num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, prototype_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        # x: (batch, channels, time) -> (batch, time, channels)
+        out, _ = self.lstm(x.permute(0, 2, 1))
+        return self.dropout(self.fc(out[:, -1, :]))  # last timestep -> (batch, prototype_dim)
+
+
 class MultiScaleEncoder(nn.Module):
     """Random dimension permutation → grouped Conv1D+BN+ReLU → GlobalPool → concatenate"""
 
@@ -217,24 +236,39 @@ class ACTSNet(nn.Module):
         self.channel_proj = nn.Conv1d(config.n_channels, config.conv_filters[0], kernel_size=1)
         nn.init.kaiming_normal_(self.channel_proj.weight, nonlinearity='leaky_relu')
 
-        self.ac_encoder = ACEncoder(
-            in_channels=config.conv_filters[0],
-            conv_filters=config.conv_filters,
-            kernel_sizes=config.kernel_sizes,
-            prototype_dim=config.prototype_dim,
-            dropout=config.dropout,
-        )
+        # Branch 2: AC (default) or LSTM (H2 ablation = TapNet original)
+        self.branch = getattr(config, "branch", "ac")
+        if self.branch == "lstm":
+            self.seq_encoder = LSTMEncoder(
+                in_channels=config.conv_filters[0],
+                hidden_dim=config.prototype_dim,
+                prototype_dim=config.prototype_dim,
+                dropout=config.dropout,
+            )
+        else:
+            self.ac_encoder = ACEncoder(
+                in_channels=config.conv_filters[0],
+                conv_filters=config.conv_filters,
+                kernel_sizes=config.kernel_sizes,
+                prototype_dim=config.prototype_dim,
+                dropout=config.dropout,
+            )
 
-        # Final projection: concatenate multi-scale + AC embeddings → prototype_dim
+        # Final projection: concatenate multi-scale + branch-2 embeddings → prototype_dim
         self.final_fc = nn.Linear(ms_out_dim + config.prototype_dim, config.prototype_dim)
         nn.init.xavier_normal_(self.final_fc.weight)
 
-        # Prototype learning
-        self.proto = PrototypicalLearning(
-            embedding_dim=config.prototype_dim,
-            n_classes=config.n_classes,
-            latent_dim_u=config.latent_dim_u,
-        )
+        # Classification head: prototypical (default) or softmax linear (H3 ablation)
+        self.head = getattr(config, "head", "proto")
+        if self.head == "softmax":
+            self.classifier = nn.Linear(config.prototype_dim, config.n_classes)
+            nn.init.xavier_normal_(self.classifier.weight)
+        else:
+            self.proto = PrototypicalLearning(
+                embedding_dim=config.prototype_dim,
+                n_classes=config.n_classes,
+                latent_dim_u=config.latent_dim_u,
+            )
 
     def encode(self, x):
         """Extract embedding for input time series.
@@ -248,12 +282,13 @@ class ACTSNet(nn.Module):
         # Branch 1: Multi-scale encoding (pooled vector)
         ms_out = self.multi_scale(x)  # (batch, ms_out_dim)
 
-        # Branch 2: AC encoder on raw input (replaces TapNet's LSTM branch)
-        ac_input = self.channel_proj(x)        # (batch, conv_filters[0], time)
-        ac_out = self.ac_encoder(ac_input)      # (batch, prototype_dim)
+        # Branch 2: AC encoder (default) or LSTM (H2 ablation)
+        branch_in = self.channel_proj(x)        # (batch, conv_filters[0], time)
+        branch_out = (self.seq_encoder(branch_in) if self.branch == "lstm"
+                      else self.ac_encoder(branch_in))  # (batch, prototype_dim)
 
         # Concatenate both branches and project to prototype_dim
-        combined = torch.cat([ms_out, ac_out], dim=1)
+        combined = torch.cat([ms_out, branch_out], dim=1)
         embedding = self.final_fc(combined)     # (batch, prototype_dim)
         return embedding
 
@@ -270,9 +305,9 @@ class ACTSNet(nn.Module):
         """
         query_emb = self.encode(x)
 
-        if support_x is None:
-            support_emb = query_emb
-        else:
-            support_emb = self.encode(support_x)
+        # Softmax head (H3 ablation): standard linear classifier, no support set.
+        if self.head == "softmax":
+            return F.log_softmax(self.classifier(query_emb), dim=1)
 
+        support_emb = query_emb if support_x is None else self.encode(support_x)
         return self.proto(query_emb, support_emb, support_labels)

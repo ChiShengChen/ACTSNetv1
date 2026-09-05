@@ -1,3 +1,22 @@
+"""DEPRECATED -- do not use this script to reproduce any published result.
+
+`evaluate_model()` builds the class prototypes from the evaluation set itself, using
+the ground-truth labels of the very samples being classified. That is a label leak:
+it does not implement the train-as-support protocol of the published study, and the
+numbers it produces are not comparable with it.
+
+The file is retained only as the original single-file demo. The evaluation code that
+produced the published results -- subject-grouped cross-validation, inner-validation
+model selection, and a class-stratified support set drawn from the TRAINING fold --
+lives in https://github.com/ChiShengChen/ACTSNet-EEG-sample-efficiency (run_loso.py).
+"""
+import warnings
+
+warnings.warn(
+    "actsnet.evaluate is deprecated: it builds prototypes from the evaluation set's own "
+    "labels (label leak). Use run_loso.py in ChiShengChen/ACTSNet-EEG-sample-efficiency.",
+    DeprecationWarning, stacklevel=2)
+
 import torch
 import torch.nn as nn
 import numpy as np

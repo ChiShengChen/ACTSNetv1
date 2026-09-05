@@ -1,15 +1,58 @@
+"""DEPRECATED for cross-subject evaluation -- do not use to reproduce any published result.
+
+This script partitions the data with `random_split` over *windows*, so segments from
+the same subject land on both sides of the split. Its `evaluate()` has been corrected to
+use the training set as the prototypical support (it no longer scores the validation set
+against its own labels), but the window-level split remains, and the script performs no
+subject-grouped cross-validation.
+
+It is retained as a single-file training demo. The protocol that produced the published
+results lives in https://github.com/ChiShengChen/ACTSNet-EEG-sample-efficiency
+(run_loso.py / run_loso_baseline.py).
+"""
+import warnings
+
+warnings.warn(
+    "actsnet.train is deprecated for cross-subject work: it splits over windows, not "
+    "subjects. Use run_loso.py in ChiShengChen/ACTSNet-EEG-sample-efficiency.",
+    DeprecationWarning, stacklevel=2)
+
 import torch
 import torch.nn as nn
 import numpy as np
 from pathlib import Path
 from torch.utils.data import DataLoader, random_split
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
+from sklearn.metrics import (
+    accuracy_score, balanced_accuracy_score, f1_score, roc_auc_score,
+)
 import argparse
 import time
 
 from .config import ACTSNetConfig
 from .model import ACTSNet
 from .dataset import EEGDataset
+
+
+def safe_auc(labels, probs):
+    """Multi-class-safe AUC over a full (N, n_classes) probability matrix.
+
+    Binary -> AUC on the positive-class column; multi-class -> one-vs-rest
+    macro AUC. Returns 0.0 when AUC is undefined (e.g. only one class present
+    in the query labels), mirroring the previous behaviour.
+    """
+    labels = np.asarray(labels)
+    n_classes = probs.shape[1]
+    if len(np.unique(labels)) < 2:
+        return 0.0
+    try:
+        if n_classes == 2:
+            return roc_auc_score(labels, probs[:, 1])
+        return roc_auc_score(
+            labels, probs, multi_class="ovr", average="macro",
+            labels=np.arange(n_classes),
+        )
+    except ValueError:
+        return 0.0
 
 
 def set_seed(seed):
@@ -38,70 +81,77 @@ def train_one_epoch(model, dataloader, optimizer, device):
 
         total_loss += loss.item() * x.size(0)
         preds = log_probs.argmax(dim=1)
-        probs = torch.exp(log_probs)[:, 1]
 
         all_preds.extend(preds.cpu().numpy())
         all_labels.extend(y.cpu().numpy())
-        all_probs.extend(probs.detach().cpu().numpy())
+        all_probs.append(torch.exp(log_probs).detach().cpu().numpy())
 
     n = len(all_labels)
+    all_probs = np.concatenate(all_probs, axis=0)  # (N, n_classes)
     metrics = {
         "loss": total_loss / n,
         "accuracy": accuracy_score(all_labels, all_preds),
-        "f1": f1_score(all_labels, all_preds, zero_division=0),
+        "balanced_accuracy": balanced_accuracy_score(all_labels, all_preds),
+        "f1": f1_score(all_labels, all_preds, average="weighted", zero_division=0),
+        "auc": safe_auc(all_labels, all_probs),
     }
-    try:
-        metrics["auc"] = roc_auc_score(all_labels, all_probs)
-    except ValueError:
-        metrics["auc"] = 0.0
     return metrics
 
 
 @torch.no_grad()
-def evaluate(model, dataloader, device):
+def evaluate(model, train_loader, val_loader, device, max_support=5000):
+    """Inductive evaluation: build class prototypes from the TRAIN set
+    (train-as-support), then classify the val/query set against them.
+
+    This avoids the transductive label leakage of using the val set as its
+    own support: prototypes here only ever see TRAIN labels, matching the
+    protocol in run_eegfm_benchmark.evaluate_batched. For very large train
+    sets the support is capped at `max_support` samples.
+    """
     model.eval()
+
+    # --- Support set from TRAIN (only train labels are ever used here) ---
+    support_x_list, support_y_list = [], []
+    n_collected = 0
+    for x, y in train_loader:
+        support_x_list.append(x)
+        support_y_list.append(y)
+        n_collected += x.size(0)
+        if n_collected >= max_support:
+            break
+    support_x = torch.cat(support_x_list, dim=0)[:max_support].to(device)
+    support_y = torch.cat(support_y_list, dim=0)[:max_support].to(device)
+
+    # Encode support in chunks (memory-safe on large train sets)
+    chunk_size = 256
+    support_embs = []
+    for i in range(0, len(support_x), chunk_size):
+        support_embs.append(model.encode(support_x[i:i + chunk_size]))
+    support_emb = torch.cat(support_embs, dim=0)
+
+    # --- Query = val set ---
     total_loss = 0.0
     all_preds, all_labels, all_probs = [], [], []
-
-    # Collect all support data for prototype computation
-    all_x, all_y = [], []
-    for x, y in dataloader:
-        all_x.append(x)
-        all_y.append(y)
-    all_x = torch.cat(all_x, dim=0).to(device)
-    all_y = torch.cat(all_y, dim=0).to(device)
-
-    # Encode all support embeddings once
-    support_emb = model.encode(all_x)
-
-    # Evaluate in batches
-    offset = 0
-    for x, y in dataloader:
-        batch_size = x.size(0)
+    for x, y in val_loader:
         x, y = x.to(device), y.to(device)
-        query_emb = support_emb[offset:offset + batch_size]
-        log_probs = model.proto(query_emb, support_emb, all_y)
+        query_emb = model.encode(x)
+        log_probs = model.proto(query_emb, support_emb, support_y)
         loss = nn.NLLLoss()(log_probs, y)
 
-        total_loss += loss.item() * batch_size
-        preds = log_probs.argmax(dim=1)
-        probs = torch.exp(log_probs)[:, 1]
-
-        all_preds.extend(preds.cpu().numpy())
+        total_loss += loss.item() * x.size(0)
+        all_preds.extend(log_probs.argmax(dim=1).cpu().numpy())
         all_labels.extend(y.cpu().numpy())
-        all_probs.extend(probs.cpu().numpy())
-        offset += batch_size
+        all_probs.append(torch.exp(log_probs).cpu().numpy())
 
     n = len(all_labels)
+    all_probs = np.concatenate(all_probs, axis=0)  # (N, n_classes)
     metrics = {
-        "loss": total_loss / n,
+        "loss": total_loss / max(1, n),
         "accuracy": accuracy_score(all_labels, all_preds),
-        "f1": f1_score(all_labels, all_preds, zero_division=0),
+        "balanced_accuracy": balanced_accuracy_score(all_labels, all_preds),
+        "f1": f1_score(all_labels, all_preds, average="weighted", zero_division=0),
+        "auc": safe_auc(all_labels, all_probs),
     }
-    try:
-        metrics["auc"] = roc_auc_score(all_labels, all_probs)
-    except ValueError:
-        metrics["auc"] = 0.0
     return metrics
 
 
@@ -132,26 +182,28 @@ def train(config: ACTSNetConfig, data_dir: str, output_dir: str = "checkpoints")
     model = ACTSNet(config).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
 
-    best_val_acc = 0.0
+    best_val_balacc = 0.0
     print(f"Training ACTSNet for {config.epochs} epochs...")
     print(f"Train: {n_train}, Val: {n_val}")
 
     for epoch in range(1, config.epochs + 1):
         t0 = time.time()
         train_metrics = train_one_epoch(model, train_loader, optimizer, device)
-        val_metrics = evaluate(model, val_loader, device)
+        val_metrics = evaluate(model, train_loader, val_loader, device)
         elapsed = time.time() - t0
 
         print(
             f"Epoch {epoch:03d}/{config.epochs} ({elapsed:.1f}s) | "
             f"Train Loss: {train_metrics['loss']:.4f} Acc: {train_metrics['accuracy']:.4f} "
+            f"BalAcc: {train_metrics['balanced_accuracy']:.4f} "
             f"F1: {train_metrics['f1']:.4f} AUC: {train_metrics['auc']:.4f} | "
             f"Val Loss: {val_metrics['loss']:.4f} Acc: {val_metrics['accuracy']:.4f} "
+            f"BalAcc: {val_metrics['balanced_accuracy']:.4f} "
             f"F1: {val_metrics['f1']:.4f} AUC: {val_metrics['auc']:.4f}"
         )
 
-        if val_metrics["accuracy"] > best_val_acc:
-            best_val_acc = val_metrics["accuracy"]
+        if val_metrics["balanced_accuracy"] > best_val_balacc:
+            best_val_balacc = val_metrics["balanced_accuracy"]
             torch.save({
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
@@ -159,7 +211,7 @@ def train(config: ACTSNetConfig, data_dir: str, output_dir: str = "checkpoints")
                 "config": config,
                 "val_metrics": val_metrics,
             }, output_dir / "best_model.pt")
-            print(f"  → Saved best model (val acc: {best_val_acc:.4f})")
+            print(f"  → Saved best model (val balanced acc: {best_val_balacc:.4f})")
 
     # Save final model
     torch.save({
@@ -168,7 +220,7 @@ def train(config: ACTSNetConfig, data_dir: str, output_dir: str = "checkpoints")
         "optimizer_state_dict": optimizer.state_dict(),
         "config": config,
     }, output_dir / "final_model.pt")
-    print(f"Training complete. Best val accuracy: {best_val_acc:.4f}")
+    print(f"Training complete. Best val balanced accuracy: {best_val_balacc:.4f}")
     return model
 
 

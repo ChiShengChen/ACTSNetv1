@@ -22,6 +22,10 @@ class ACTSNetConfig:
     prototype_dim: int = 128   # embedding dimension d
     latent_dim_u: int = 64     # hidden latent space dimension u
 
+    # Ablation switches (Paper 1 H2/H3)
+    branch: str = "ac"     # "ac" (AttentionalConvolution) or "lstm" (TapNet original)
+    head: str = "proto"    # "proto" (prototypical) or "softmax" (linear + CE/NLL)
+
     # Training
     learning_rate: float = 1e-3
     batch_size: int = 16

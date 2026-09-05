@@ -22,6 +22,20 @@ PyTorch reproduction of **ACTSNet (Attentional Convolution Time Series Network)*
 }
 ```
 
+## Status of the code in this repository
+
+| File | Status |
+|---|---|
+| `actsnet/model.py`, `actsnet/config.py` | The architecture. This is what the published study uses (with the `branch` / `head` ablation switches). |
+| `actsnet/train.py` | **Deprecated for cross-subject work.** Splits over windows, not subjects. Its `evaluate()` was corrected to use the training set as the prototypical support, but it performs no subject-grouped cross-validation. |
+| `actsnet/evaluate.py` | **Deprecated -- label leak.** Builds prototypes from the evaluation set's own labels. Never used for any reported result. |
+| `run_eegfm_benchmark.py`, `run_pretrain.py` | EEG-FM-Bench splits and caches, plus a self-supervised pretraining pipeline. The numbers below come from these and are **not** the numbers of the published sample-efficiency study, which uses its own preprocessing pipeline, subject-grouped protocol, and no pretraining. |
+
+The analysis code that produced every number in the published study -- preprocessing,
+subject-grouped cross-validation, baselines, ablations, statistics -- together with the
+per-fold results, is in a separate repository:
+**https://github.com/ChiShengChen/ACTSNet-EEG-sample-efficiency**.
+
 ## Overview
 
 ACTSNet is designed for **MDD (Major Depressive Disorder)** resting-state EEG binary classification — predicting **rTMS/iTBS treatment responders vs non-responders**. It is a modified version of [TapNet](https://ojs.aaai.org/index.php/AAAI/article/view/6165) (Zhang et al., AAAI 2020) where the LSTM branch is replaced by an **Attentional Convolution (AC)** module inspired by the [Encoder network](https://arxiv.org/abs/1805.03908) (Serra et al., 2018). The motivation is that LSTM does not perform well on noisy MDD EEG data, while AC provides better feature extraction through attention-weighted convolution.
@@ -112,6 +126,9 @@ ACTSNet/
 ```
 
 ## Benchmark Results
+
+> These results use the EEG-FM-Bench caches and splits. They are **not** the results of the published sample-efficiency study (different preprocessing, protocol, and no pretraining); see the status table above and the analysis repository.
+
 
 ACTSNet evaluated on 4 EEG-FM-Bench datasets with 3 seeds (42, 123, 456), 100 finetune epochs, batch size 64, LR 1e-3, T=1024. Metric: **balanced accuracy** (mean ± std).
 
