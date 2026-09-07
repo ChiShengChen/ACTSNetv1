@@ -80,8 +80,12 @@ class LSTMEncoder(nn.Module):
 
     def forward(self, x):
         # x: (batch, channels, time) -> (batch, time, channels)
-        out, _ = self.lstm(x.permute(0, 2, 1))
-        return self.dropout(self.fc(out[:, -1, :]))  # last timestep -> (batch, prototype_dim)
+        # Only the final hidden state is used, so take it from h_n instead of slicing the
+        # full (batch, time, hidden) output: identical values, but the T-proportional
+        # output tensor is never materialised (5000 support windows x T=2560 x 128 floats
+        # was 6.5 GiB and caused CUDA OOM during support-set encoding).
+        _, (h_n, _) = self.lstm(x.permute(0, 2, 1))
+        return self.dropout(self.fc(h_n[-1]))        # (batch, prototype_dim)
 
 
 class MultiScaleEncoder(nn.Module):
